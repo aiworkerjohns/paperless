@@ -50,7 +50,7 @@ AZURE_API_KEY=
 AZURE_DEPLOYMENT_NAME=
 AZURE_API_VERSION=
 OLLAMA_API_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
-OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
 ENVEOF
   echo "Seeded /app/data/.env — edit via paperless-ai settings UI going forward"
 fi
