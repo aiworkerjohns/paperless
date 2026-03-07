@@ -323,6 +323,9 @@
     '    <h3>Ask AI</h3>',
     '  </div>',
     '  <div id="ai-chat-header-actions">',
+    '    <button id="ai-chat-reprocess" title="Reprocess all documents">',
+    '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+    '    </button>',
     '    <button id="ai-chat-new" title="New chat">',
     '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
     '    </button>',
@@ -550,6 +553,33 @@
   });
   document.getElementById("ai-convo-back").addEventListener("click", closeConvoList);
   document.getElementById("ai-convo-new-btn").addEventListener("click", newConversation);
+
+  // --- Reprocess all documents ---
+  document.getElementById("ai-chat-reprocess").addEventListener("click", function () {
+    if (!confirm("Reprocess all documents with AI?\n\nThis resets the processing history so all documents get re-analysed on the next scan cycle.")) return;
+    var btn = this;
+    btn.style.opacity = "0.3";
+    btn.disabled = true;
+    fetch(AI_BASE + "/api/reset-all-documents", {
+      method: "POST",
+      headers: { "x-api-key": API_KEY },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.success) {
+          addAndSave("Reprocessing queued — all documents will be re-analysed on the next scan cycle (within 30 min).", "assistant");
+        } else {
+          addAndSave("Failed to reset processing history.", "error");
+        }
+      })
+      .catch(function (err) {
+        addAndSave("Error: " + err.message, "error");
+      })
+      .finally(function () {
+        btn.style.opacity = "";
+        btn.disabled = false;
+      });
+  });
 
   // --- Auto-resize textarea ---
   input.addEventListener("input", function () {
