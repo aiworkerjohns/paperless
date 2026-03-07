@@ -4,6 +4,13 @@
 # 1. Limit RAG context to top 2 sources (prevents irrelevant docs confusing the LLM)
 sed -i 's/max_sources: 5/max_sources: 2/' /app/services/ragService.js 2>/dev/null
 
+# 2. Auto-reindex RAG after each document scan cycle
+# Injects a RAG reindex call at the end of scanDocuments() in server.js
+if ! grep -q 'RAG_REINDEX_PATCH' /app/server.js; then
+  sed -i 's/runningTask = false;/runningTask = false;\n    \/\/ RAG_REINDEX_PATCH: trigger RAG reindex after scan\n    try { const axios = require("axios"); axios.post("http:\/\/localhost:8000\/indexing\/start", { force: true, background: true }).then(() => console.log("[INFO] RAG reindex triggered after scan")).catch(() => {}); } catch(e) {}/' /app/server.js
+  echo "Patched server.js: RAG auto-reindex after scan"
+fi
+
 # 2. Seed data/.env if empty or missing (first-run only)
 #    Once seeded, the user manages settings via the paperless-ai web UI (port 3000).
 #    This script will NOT overwrite an existing config.

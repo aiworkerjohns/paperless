@@ -560,14 +560,21 @@
     var btn = this;
     btn.style.opacity = "0.3";
     btn.disabled = true;
-    fetch(AI_BASE + "/api/reset-all-documents", {
-      method: "POST",
-      headers: { "x-api-key": API_KEY },
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.success) {
-          addAndSave("Reprocessing queued — all documents will be re-analysed on the next scan cycle (within 30 min).", "assistant");
+    Promise.all([
+      fetch(AI_BASE + "/api/reset-all-documents", {
+        method: "POST",
+        headers: { "x-api-key": API_KEY },
+      }).then(function (r) { return r.json(); }),
+      fetch(AI_BASE + "/api/rag/index?force=true", {
+        method: "POST",
+        headers: { "x-api-key": API_KEY },
+      }).then(function (r) { return r.json(); }).catch(function () { return {}; })
+    ])
+      .then(function (results) {
+        if (results[0].success) {
+          addAndSave("Reprocessing queued — all documents will be re-analysed on the next scan cycle (within 30 min). RAG index is also rebuilding.", "assistant");
+          // Update status bar after reindex completes
+          setTimeout(checkIndexStatus, 15000);
         } else {
           addAndSave("Failed to reset processing history.", "error");
         }
