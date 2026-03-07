@@ -1,0 +1,881 @@
+// Paperless-ngx overrides.js — AI Document Chat Panel
+// Injects a floating "Ask AI" button that opens a slide-out chat panel
+// connecting to paperless-ai RAG API
+(function () {
+  "use strict";
+
+  var CONVOS_KEY = "ai-chat-convos";
+  var ACTIVE_KEY = "ai-chat-active";
+  var PANEL_STATE_KEY = "ai-chat-open";
+  var API_KEY = "__AI_API_KEY__";
+
+  function getAiBaseUrl() {
+    var loc = window.location;
+    if (loc.hostname === "localhost" || loc.hostname === "127.0.0.1") {
+      return "http://localhost:3000";
+    }
+    return loc.protocol + "//" + loc.hostname + ":8443";
+  }
+
+  var AI_BASE = getAiBaseUrl();
+
+  // --- Styles ---
+  var style = document.createElement("style");
+  style.textContent = [
+    "#ai-chat-fab {",
+    "  position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px;",
+    "  border-radius: 50%; background: var(--bs-primary);",
+    "  color: var(--pngx-primary-text-contrast, #fff); border: none; cursor: pointer;",
+    "  box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000;",
+    "  display: flex; align-items: center; justify-content: center;",
+    "  transition: transform 0.2s, background 0.2s;",
+    "}",
+    "#ai-chat-fab:hover { transform: scale(1.1); background: var(--pngx-primary-darken-5); }",
+    "#ai-chat-panel {",
+    "  position: fixed; top: 0; right: -420px; width: 400px; height: 100vh;",
+    "  background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529);",
+    "  box-shadow: -4px 0 20px rgba(0,0,0,0.25); z-index: 10001;",
+    "  display: flex; flex-direction: column; transition: right 0.3s ease;",
+    "  font-family: var(--bs-body-font-family);",
+    "}",
+    "#ai-chat-panel.open { right: 0; }",
+    "#ai-chat-header {",
+    "  display: flex; align-items: center; justify-content: space-between;",
+    "  padding: 12px 16px; background: var(--bs-primary);",
+    "  color: var(--pngx-primary-text-contrast, #fff); flex-shrink: 0;",
+    "}",
+    "#ai-chat-header-left { display: flex; align-items: center; gap: 8px; }",
+    "#ai-chat-hamburger {",
+    "  background: none; border: none; color: var(--pngx-primary-text-contrast, #fff);",
+    "  cursor: pointer; padding: 4px; display: flex; align-items: center; opacity: 0.9;",
+    "}",
+    "#ai-chat-hamburger:hover { opacity: 1; }",
+    "#ai-chat-header h3 { margin: 0; font-size: 16px; font-weight: 600; }",
+    "#ai-chat-header-actions { display: flex; gap: 8px; align-items: center; }",
+    "#ai-chat-header-actions button {",
+    "  background: none; border: none; color: var(--pngx-primary-text-contrast, #fff);",
+    "  font-size: 13px; cursor: pointer; opacity: 0.8; padding: 2px 6px;",
+    "}",
+    "#ai-chat-header-actions button:hover { opacity: 1; }",
+    "#ai-chat-settings {",
+    "  color: var(--pngx-primary-text-contrast, #fff); opacity: 0.8;",
+    "  display: flex; align-items: center; padding: 2px;",
+    "}",
+    "#ai-chat-settings:hover { opacity: 1; }",
+    "#ai-chat-close { font-size: 22px !important; line-height: 1; }",
+    // Conversation list overlay
+    "#ai-convo-list {",
+    "  position: absolute; top: 0; left: 0; width: 100%; height: 100%;",
+    "  background: var(--bs-body-bg, #fff); z-index: 2;",
+    "  display: flex; flex-direction: column;",
+    "  transform: translateX(-100%); transition: transform 0.25s ease;",
+    "}",
+    "#ai-convo-list.open { transform: translateX(0); }",
+    "#ai-convo-list-header {",
+    "  display: flex; align-items: center; justify-content: space-between;",
+    "  padding: 12px 16px; background: var(--bs-primary);",
+    "  color: var(--pngx-primary-text-contrast, #fff); flex-shrink: 0;",
+    "}",
+    "#ai-convo-list-header h3 { margin: 0; font-size: 16px; font-weight: 600; }",
+    "#ai-convo-back {",
+    "  background: none; border: none; color: var(--pngx-primary-text-contrast, #fff);",
+    "  cursor: pointer; padding: 4px; display: flex; align-items: center; opacity: 0.9;",
+    "}",
+    "#ai-convo-back:hover { opacity: 1; }",
+    "#ai-convo-new-btn {",
+    "  background: none; border: none; color: var(--pngx-primary-text-contrast, #fff);",
+    "  cursor: pointer; font-size: 13px; opacity: 0.8; padding: 2px 6px;",
+    "}",
+    "#ai-convo-new-btn:hover { opacity: 1; }",
+    "#ai-convo-items {",
+    "  flex: 1; overflow-y: auto; padding: 8px 0;",
+    "}",
+    ".ai-convo-item {",
+    "  display: flex; align-items: center; padding: 12px 16px; cursor: pointer;",
+    "  border-bottom: 1px solid var(--bs-border-color, rgba(0,0,0,0.1));",
+    "  transition: background 0.15s;",
+    "}",
+    ".ai-convo-item:hover { background: var(--pngx-bg-alt, #f0f0f0); }",
+    ".ai-convo-item.active { background: rgba(var(--bs-primary-rgb), 0.1); }",
+    ".ai-convo-item-text { flex: 1; min-width: 0; }",
+    ".ai-convo-item-title {",
+    "  font-size: 14px; font-weight: 500; white-space: nowrap;",
+    "  overflow: hidden; text-overflow: ellipsis; color: var(--bs-body-color, #212529);",
+    "}",
+    ".ai-convo-item-meta {",
+    "  font-size: 11px; color: var(--bs-secondary-color, #999); margin-top: 2px;",
+    "}",
+    ".ai-convo-delete {",
+    "  background: none; border: none; color: var(--bs-secondary-color, #999);",
+    "  cursor: pointer; padding: 4px 8px; font-size: 16px; opacity: 0.6;",
+    "  flex-shrink: 0;",
+    "}",
+    ".ai-convo-delete:hover { opacity: 1; color: var(--bs-danger, #dc3545); }",
+    ".ai-convo-empty {",
+    "  text-align: center; padding: 32px 16px;",
+    "  color: var(--bs-secondary-color, #999); font-size: 14px;",
+    "}",
+    // Messages
+    "#ai-chat-messages {",
+    "  flex: 1; overflow-y: auto; padding: 16px;",
+    "  display: flex; flex-direction: column; gap: 12px;",
+    "}",
+    ".ai-msg {",
+    "  max-width: 90%; padding: 10px 14px; border-radius: 12px;",
+    "  font-size: 14px; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap;",
+    "}",
+    ".ai-msg.user {",
+    "  align-self: flex-end; background: var(--bs-primary);",
+    "  color: var(--pngx-primary-text-contrast, #fff); border-bottom-right-radius: 4px;",
+    "}",
+    ".ai-msg.assistant {",
+    "  align-self: flex-start; background: var(--pngx-bg-alt, #f0f0f0);",
+    "  color: var(--bs-body-color, #212529); border-bottom-left-radius: 4px;",
+    "}",
+    ".ai-msg.error {",
+    "  align-self: center; background: var(--bs-danger-bg-subtle, #f8d7da);",
+    "  color: var(--bs-danger-text-emphasis, #842029); font-size: 13px; text-align: center;",
+    "}",
+    ".ai-msg .sources {",
+    "  margin-top: 8px; padding-top: 8px;",
+    "  border-top: 1px solid var(--bs-border-color-translucent, rgba(0,0,0,0.1));",
+    "  font-size: 12px; opacity: 0.8;",
+    "}",
+    ".ai-msg .sources a {",
+    "  color: var(--bs-primary); text-decoration: none;",
+    "  display: inline-block; margin: 2px 0;",
+    "}",
+    ".ai-msg .sources a:hover { text-decoration: underline; }",
+    "@keyframes ai-dots { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }",
+    ".ai-typing-dots {",
+    "  align-self: flex-start; padding: 10px 14px;",
+    "  background: var(--pngx-bg-alt, #f0f0f0); border-radius: 12px;",
+    "  display: flex; gap: 4px; align-items: center;",
+    "}",
+    ".ai-typing-dots span {",
+    "  width: 8px; height: 8px; border-radius: 50%;",
+    "  background: var(--bs-secondary-color, #999); display: inline-block;",
+    "  animation: ai-dots 1.4s infinite both;",
+    "}",
+    ".ai-typing-dots span:nth-child(2) { animation-delay: 0.2s; }",
+    ".ai-typing-dots span:nth-child(3) { animation-delay: 0.4s; }",
+    "#ai-chat-input-area {",
+    "  display: flex; gap: 8px; padding: 12px 16px;",
+    "  border-top: 1px solid var(--bs-border-color, rgba(0,0,0,0.1)); flex-shrink: 0;",
+    "}",
+    "#ai-chat-input {",
+    "  flex: 1; padding: 10px 12px; border: 1px solid var(--bs-border-color, #dee2e6);",
+    "  border-radius: 8px; font-size: 14px; outline: none;",
+    "  background: var(--bs-body-bg, #fff); color: var(--bs-body-color, #212529);",
+    "  resize: none; min-height: 40px; max-height: 100px; font-family: inherit;",
+    "}",
+    "#ai-chat-input:focus {",
+    "  border-color: var(--bs-primary);",
+    "  box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), var(--pngx-focus-alpha, 0.3));",
+    "}",
+    "#ai-chat-send {",
+    "  padding: 8px 16px; background: var(--bs-primary);",
+    "  color: var(--pngx-primary-text-contrast, #fff); border: none; border-radius: 8px;",
+    "  cursor: pointer; font-size: 14px; font-weight: 600; align-self: flex-end;",
+    "}",
+    "#ai-chat-send:hover { background: var(--pngx-primary-darken-5); }",
+    "#ai-chat-send:disabled { opacity: 0.5; cursor: not-allowed; }",
+    "#ai-chat-status {",
+    "  padding: 6px 16px; font-size: 11px; text-align: center;",
+    "  color: var(--bs-secondary-color, #999); flex-shrink: 0;",
+    "}",
+    "@media (max-width: 500px) { #ai-chat-panel { width: 100vw; right: -100vw; } }",
+    // Duplicate indicator banner
+    "#ai-dupe-banner {",
+    "  display: flex; align-items: center; gap: 10px; padding: 8px 16px;",
+    "  background: var(--bs-warning-bg-subtle, #fff3cd); color: var(--bs-warning-text-emphasis, #664d03);",
+    "  border: 1px solid var(--bs-warning-border-subtle, #ffecb5); border-radius: 8px;",
+    "  margin: 0 16px 12px 16px; font-size: 13px;",
+    "}",
+    "#ai-dupe-banner svg { flex-shrink: 0; }",
+    "#ai-dupe-banner a {",
+    "  color: var(--bs-warning-text-emphasis, #664d03); font-weight: 600;",
+    "  text-decoration: underline; text-underline-offset: 2px;",
+    "}",
+    "#ai-dupe-banner a:hover { opacity: 0.8; }"
+  ].join("\n");
+  document.head.appendChild(style);
+
+  // --- Multi-conversation storage ---
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  }
+
+  function loadConversations() {
+    try {
+      var data = sessionStorage.getItem(CONVOS_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) { return []; }
+  }
+
+  function saveConversations(convos) {
+    try {
+      sessionStorage.setItem(CONVOS_KEY, JSON.stringify(convos));
+    } catch (e) { /* ignore */ }
+  }
+
+  function getActiveId() {
+    return sessionStorage.getItem(ACTIVE_KEY) || null;
+  }
+
+  function setActiveId(id) {
+    if (id) {
+      sessionStorage.setItem(ACTIVE_KEY, id);
+    } else {
+      sessionStorage.removeItem(ACTIVE_KEY);
+    }
+  }
+
+  function savePanelState(isOpen) {
+    sessionStorage.setItem(PANEL_STATE_KEY, isOpen ? "1" : "0");
+  }
+
+  function wasPanelOpen() {
+    return sessionStorage.getItem(PANEL_STATE_KEY) === "1";
+  }
+
+  // Migrate old single-chat storage to new format
+  function migrateOldStorage() {
+    var old = sessionStorage.getItem("ai-chat-history");
+    if (old) {
+      try {
+        var messages = JSON.parse(old);
+        if (messages.length > 0) {
+          var firstQ = messages.find(function(m) { return m.role === "user"; });
+          var title = firstQ ? firstQ.text.substring(0, 50) : "Previous chat";
+          var convo = { id: genId(), title: title, messages: messages, created: Date.now() };
+          var convos = loadConversations();
+          convos.unshift(convo);
+          saveConversations(convos);
+          setActiveId(convo.id);
+        }
+      } catch (e) { /* ignore */ }
+      sessionStorage.removeItem("ai-chat-history");
+    }
+  }
+
+  migrateOldStorage();
+
+  // Get active conversation (or null)
+  function getActiveConvo() {
+    var id = getActiveId();
+    if (!id) return null;
+    var convos = loadConversations();
+    for (var i = 0; i < convos.length; i++) {
+      if (convos[i].id === id) return convos[i];
+    }
+    return null;
+  }
+
+  // Save messages to active conversation
+  function saveActiveMessages(messages) {
+    var id = getActiveId();
+    if (!id) return;
+    var convos = loadConversations();
+    for (var i = 0; i < convos.length; i++) {
+      if (convos[i].id === id) {
+        convos[i].messages = messages;
+        break;
+      }
+    }
+    saveConversations(convos);
+  }
+
+  // Create new conversation and make it active
+  function newConversation() {
+    var convo = { id: genId(), title: "New chat", messages: [], created: Date.now() };
+    var convos = loadConversations();
+    convos.unshift(convo);
+    saveConversations(convos);
+    setActiveId(convo.id);
+    chatLog = [];
+    restoreChat();
+    closeConvoList();
+  }
+
+  // In-memory chat log
+  var chatLog = [];
+  var activeConvo = getActiveConvo();
+  if (activeConvo) {
+    chatLog = activeConvo.messages;
+  }
+
+  // --- DOM ---
+  var fab = document.createElement("button");
+  fab.id = "ai-chat-fab";
+  fab.title = "Ask AI about your documents";
+  fab.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+  document.body.appendChild(fab);
+
+  var panel = document.createElement("div");
+  panel.id = "ai-chat-panel";
+  panel.innerHTML = [
+    '<div id="ai-chat-header">',
+    '  <div id="ai-chat-header-left">',
+    '    <button id="ai-chat-hamburger" title="Chat history">',
+    '      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    '    </button>',
+    '    <h3>Ask AI</h3>',
+    '  </div>',
+    '  <div id="ai-chat-header-actions">',
+    '    <button id="ai-chat-new" title="New chat">',
+    '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+    '    </button>',
+    '    <a id="ai-chat-settings" href="' + AI_BASE + '" target="_blank" title="AI Settings">',
+    '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    '    </a>',
+    '    <button id="ai-chat-close" title="Close">&times;</button>',
+    '  </div>',
+    '</div>',
+    '<div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden">',
+    '  <div id="ai-chat-messages"></div>',
+    '  <div id="ai-convo-list">',
+    '    <div id="ai-convo-list-header">',
+    '      <div style="display:flex;align-items:center;gap:8px">',
+    '        <button id="ai-convo-back" title="Back">',
+    '          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+    '        </button>',
+    '        <h3>Chats</h3>',
+    '      </div>',
+    '      <button id="ai-convo-new-btn" title="New chat">+ New</button>',
+    '    </div>',
+    '    <div id="ai-convo-items"></div>',
+    '  </div>',
+    '</div>',
+    '<div id="ai-chat-status"></div>',
+    '<div id="ai-chat-input-area">',
+    '  <textarea id="ai-chat-input" placeholder="Ask about your documents..." rows="1"></textarea>',
+    '  <button id="ai-chat-send">Send</button>',
+    '</div>'
+  ].join("\n");
+  document.body.appendChild(panel);
+
+  var messagesEl = document.getElementById("ai-chat-messages");
+  var input = document.getElementById("ai-chat-input");
+  var sendBtn = document.getElementById("ai-chat-send");
+  var statusEl = document.getElementById("ai-chat-status");
+  var convoListEl = document.getElementById("ai-convo-list");
+  var convoItemsEl = document.getElementById("ai-convo-items");
+
+  // --- Render a message to the DOM ---
+  function renderMessage(entry) {
+    if (entry.role === "typing") return;
+    var div = document.createElement("div");
+    div.className = "ai-msg " + entry.role;
+    div.textContent = entry.text;
+
+    if (entry.sources && entry.sources.length > 0) {
+      var sourcesDiv = document.createElement("div");
+      sourcesDiv.className = "sources";
+      sourcesDiv.innerHTML = entry.sources.map(function (s) {
+        return '<a href="/documents/' + s.id + '/details">' + s.title + '</a>';
+      }).join("<br>");
+      div.appendChild(sourcesDiv);
+    }
+
+    messagesEl.appendChild(div);
+    return div;
+  }
+
+  // --- Restore chat from active conversation ---
+  function restoreChat() {
+    messagesEl.innerHTML = "";
+    if (chatLog.length === 0) {
+      var welcome = document.createElement("div");
+      welcome.className = "ai-msg assistant";
+      welcome.textContent = "Hi! Ask me anything about your documents.";
+      messagesEl.appendChild(welcome);
+    } else {
+      chatLog.forEach(function (entry) { renderMessage(entry); });
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  restoreChat();
+
+  // --- Toggle panel ---
+  function openPanel() {
+    panel.classList.add("open");
+    fab.style.display = "none";
+    savePanelState(true);
+    // Start a new conversation if none active
+    if (!getActiveId()) {
+      newConversation();
+    }
+    input.focus();
+    checkIndexStatus();
+  }
+
+  function closePanel() {
+    panel.classList.remove("open");
+    fab.style.display = "flex";
+    savePanelState(false);
+    closeConvoList();
+  }
+
+  fab.addEventListener("click", openPanel);
+  document.getElementById("ai-chat-close").addEventListener("click", closePanel);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      if (convoListEl.classList.contains("open")) {
+        closeConvoList();
+      } else if (panel.classList.contains("open")) {
+        closePanel();
+      }
+    }
+  });
+
+  // --- Click outside to close ---
+  document.addEventListener("click", function (e) {
+    if (!panel.classList.contains("open")) return;
+    // Ignore clicks on the panel itself or the FAB
+    if (panel.contains(e.target) || fab.contains(e.target)) return;
+    closePanel();
+  });
+
+  // Restore panel state after page navigation
+  if (wasPanelOpen()) {
+    setTimeout(openPanel, 300);
+  }
+
+  // --- Conversation list ---
+  function openConvoList() {
+    renderConvoList();
+    convoListEl.classList.add("open");
+  }
+
+  function closeConvoList() {
+    convoListEl.classList.remove("open");
+  }
+
+  function formatTime(ts) {
+    var d = new Date(ts);
+    var now = new Date();
+    var diff = now - d;
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+    if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+    return d.toLocaleDateString();
+  }
+
+  function renderConvoList() {
+    var convos = loadConversations();
+    var activeId = getActiveId();
+    convoItemsEl.innerHTML = "";
+
+    if (convos.length === 0) {
+      var empty = document.createElement("div");
+      empty.className = "ai-convo-empty";
+      empty.textContent = "No conversations yet";
+      convoItemsEl.appendChild(empty);
+      return;
+    }
+
+    convos.forEach(function (c) {
+      var item = document.createElement("div");
+      item.className = "ai-convo-item" + (c.id === activeId ? " active" : "");
+
+      var textDiv = document.createElement("div");
+      textDiv.className = "ai-convo-item-text";
+
+      var titleEl = document.createElement("div");
+      titleEl.className = "ai-convo-item-title";
+      titleEl.textContent = c.title;
+
+      var metaEl = document.createElement("div");
+      metaEl.className = "ai-convo-item-meta";
+      var msgCount = c.messages.filter(function(m) { return m.role === "user"; }).length;
+      metaEl.textContent = msgCount + " message" + (msgCount !== 1 ? "s" : "") + " · " + formatTime(c.created);
+
+      textDiv.appendChild(titleEl);
+      textDiv.appendChild(metaEl);
+
+      var deleteBtn = document.createElement("button");
+      deleteBtn.className = "ai-convo-delete";
+      deleteBtn.title = "Delete chat";
+      deleteBtn.innerHTML = "&times;";
+      deleteBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        deleteConversation(c.id);
+      });
+
+      item.appendChild(textDiv);
+      item.appendChild(deleteBtn);
+      item.addEventListener("click", function () {
+        switchConversation(c.id);
+      });
+
+      convoItemsEl.appendChild(item);
+    });
+  }
+
+  function switchConversation(id) {
+    setActiveId(id);
+    var convo = getActiveConvo();
+    chatLog = convo ? convo.messages : [];
+    restoreChat();
+    closeConvoList();
+    input.focus();
+  }
+
+  function deleteConversation(id) {
+    var convos = loadConversations();
+    convos = convos.filter(function (c) { return c.id !== id; });
+    saveConversations(convos);
+
+    if (getActiveId() === id) {
+      if (convos.length > 0) {
+        switchConversation(convos[0].id);
+      } else {
+        setActiveId(null);
+        chatLog = [];
+        restoreChat();
+      }
+    }
+    renderConvoList();
+  }
+
+  document.getElementById("ai-chat-new").addEventListener("click", newConversation);
+  document.getElementById("ai-chat-hamburger").addEventListener("click", function () {
+    if (convoListEl.classList.contains("open")) {
+      closeConvoList();
+    } else {
+      openConvoList();
+    }
+  });
+  document.getElementById("ai-convo-back").addEventListener("click", closeConvoList);
+  document.getElementById("ai-convo-new-btn").addEventListener("click", newConversation);
+
+  // --- Auto-resize textarea ---
+  input.addEventListener("input", function () {
+    this.style.height = "auto";
+    this.style.height = Math.min(this.scrollHeight, 100) + "px";
+  });
+
+  // --- Index status ---
+  function checkIndexStatus() {
+    fetch(AI_BASE + "/api/rag/index/status", {
+      headers: { "x-api-key": API_KEY },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.documents_count === 0) {
+          statusEl.textContent = "Indexing in progress...";
+        } else {
+          statusEl.textContent = data.documents_count + " documents indexed";
+        }
+      })
+      .catch(function () {
+        statusEl.textContent = "AI service unavailable";
+      });
+  }
+
+  // --- Filter sources: only relevant, deduplicated ---
+  function filterSources(sources, answer) {
+    if (!sources || sources.length === 0) return [];
+    var seen = {};
+    var filtered = [];
+    var answerLower = (answer || "").toLowerCase();
+    for (var i = 0; i < sources.length; i++) {
+      var s = sources[i];
+      var id = s.doc_id || s.id || s.document_id;
+      if (!id || seen[id]) continue;
+      var title = s.title || ("Document #" + id);
+      var score = s.score || s.cross_score || 0;
+      var titleWords = title.toLowerCase().split(/\s+/).filter(function(w) { return w.length > 3; });
+      var mentioned = titleWords.some(function(w) { return answerLower.indexOf(w) !== -1; });
+      if (score > 0.03 || mentioned) {
+        seen[id] = true;
+        filtered.push({ id: id, title: title });
+      }
+      if (filtered.length >= 3) break;
+    }
+    return filtered;
+  }
+
+  // --- Chat ---
+  function addAndSave(text, role, sources) {
+    var entry = { text: text, role: role };
+    if (sources && sources.length > 0) entry.sources = sources;
+    chatLog.push(entry);
+
+    // Ensure an active conversation exists
+    if (!getActiveId()) {
+      newConversation();
+    }
+
+    // Update title from first user message
+    if (role === "user") {
+      var convos = loadConversations();
+      var activeId = getActiveId();
+      for (var i = 0; i < convos.length; i++) {
+        if (convos[i].id === activeId && convos[i].title === "New chat") {
+          convos[i].title = text.length > 50 ? text.substring(0, 47) + "..." : text;
+          saveConversations(convos);
+          break;
+        }
+      }
+    }
+
+    saveActiveMessages(chatLog);
+    renderMessage(entry);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // --- Progress indicator ---
+  function showProgress(text) {
+    removeProgress();
+    var div = document.createElement("div");
+    div.className = "ai-typing-dots";
+    div.id = "ai-progress";
+    var label = document.createElement("span");
+    label.style.cssText = "font-size:13px;color:var(--bs-secondary-color,#999);margin-right:8px;animation:none;width:auto;height:auto;background:none;border-radius:0";
+    label.textContent = text;
+    div.innerHTML = "";
+    div.appendChild(label);
+    var dots = document.createElement("span");
+    dots.innerHTML = '<span></span><span></span><span></span>';
+    dots.style.cssText = "display:flex;gap:4px";
+    dots.querySelectorAll("span").forEach(function(s, i) {
+      s.style.cssText = "width:6px;height:6px;border-radius:50%;background:var(--bs-secondary-color,#999);display:inline-block;animation:ai-dots 1.4s infinite both;animation-delay:" + (i * 0.2) + "s";
+    });
+    div.appendChild(dots);
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function removeProgress() {
+    var el = document.getElementById("ai-progress");
+    if (el) el.remove();
+  }
+
+  // --- Two-phase chat: search first, then answer ---
+  function sendMessage() {
+    var question = input.value.trim();
+    if (!question) return;
+
+    addAndSave(question, "user");
+    input.value = "";
+    input.style.height = "auto";
+    sendBtn.disabled = true;
+
+    // Phase 1: Quick search to show matched documents
+    showProgress("Searching documents");
+
+    fetch(AI_BASE + "/api/rag/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+      body: JSON.stringify({ query: question }),
+    })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (searchResults) {
+        var results = Array.isArray(searchResults) ? searchResults : (searchResults.results || []);
+        var topScore = results.length > 0 ? (results[0].score || 0) : 0;
+        var threshold = topScore * 0.3;
+        var relevant = results.filter(function(r) { return (r.score || 0) > threshold && (r.score || 0) > 0.05; });
+        var count = relevant.length;
+        if (count > 0) {
+          showProgress("Found " + count + " doc" + (count > 1 ? "s" : "") + ", generating answer");
+        } else {
+          showProgress("Generating answer");
+        }
+
+        // Phase 2: Get the full AI answer
+        return fetch(AI_BASE + "/api/rag/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+          body: JSON.stringify({ question: question }),
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        removeProgress();
+        var answer = data.answer || data.response || data.message || JSON.stringify(data);
+        var rawSources = data.sources || data.documents || data.context || [];
+        var sources = filterSources(rawSources, answer);
+        addAndSave(answer, "assistant", sources);
+      })
+      .catch(function (err) {
+        removeProgress();
+        addAndSave("Error: " + err.message, "error");
+      })
+      .finally(function () {
+        sendBtn.disabled = false;
+        input.focus();
+      });
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // --- Auto-dismiss "Document changes detected" dialog ---
+  // Background AI/workflow processing updates docs while viewing them,
+  // triggering a version conflict warning. Auto-click "discard" to suppress it.
+  var dismissObserver = new MutationObserver(function (mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var nodes = mutations[i].addedNodes;
+      for (var j = 0; j < nodes.length; j++) {
+        var node = nodes[j];
+        if (node.nodeType !== 1) continue;
+        // Look for the modal dialog containing "Document changes detected"
+        var modal = node.classList && node.classList.contains("modal-backdrop")
+          ? document.querySelector(".modal-dialog")
+          : node.querySelector ? node.querySelector(".modal-dialog") : null;
+        if (!modal) {
+          if (node.classList && node.classList.contains("modal")) modal = node.querySelector(".modal-dialog");
+        }
+        if (!modal) continue;
+        var title = modal.textContent || "";
+        if (title.indexOf("Document changes detected") !== -1 || title.indexOf("changes detected") !== -1) {
+          // Find and click the discard/close button
+          var buttons = modal.querySelectorAll("button");
+          for (var k = 0; k < buttons.length; k++) {
+            var btnText = (buttons[k].textContent || "").trim().toLowerCase();
+            if (btnText === "discard" || btnText === "close" || btnText.indexOf("discard") !== -1) {
+              buttons[k].click();
+              return;
+            }
+          }
+          // Fallback: click the X close button
+          var closeBtn = modal.querySelector("[aria-label='Close'], .btn-close, .close");
+          if (closeBtn) closeBtn.click();
+        }
+      }
+    }
+  });
+  dismissObserver.observe(document.body, { childList: true, subtree: true });
+
+  // --- Duplicate document indicator ---
+  // Watches for document detail pages and shows a banner if tagged possible-duplicate
+  var PAPERLESS_TOKEN = "__PAPERLESS_TOKEN__";
+  var dupeLastDocId = null;
+
+  function checkForDuplicate() {
+    // Match URL: /documents/123/details
+    var match = window.location.href.match(/\/documents\/(\d+)\/details/);
+    if (!match) {
+      removeDupeBanner();
+      dupeLastDocId = null;
+      return;
+    }
+    var docId = match[1];
+    if (docId === dupeLastDocId) return; // already checked
+    dupeLastDocId = docId;
+    removeDupeBanner();
+
+    // Fetch document to check tags
+    fetch("/api/documents/" + docId + "/", {
+      headers: { "Authorization": "Token " + PAPERLESS_TOKEN }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (doc) {
+        // Check if it has the possible-duplicate tag
+        // We need the tag ID — fetch it once and cache
+        return getDupeTagId().then(function (dupeTagId) {
+          if (!dupeTagId || doc.tags.indexOf(dupeTagId) === -1) return;
+          // Fetch notes to find original doc link
+          return fetch("/api/documents/" + docId + "/notes/", {
+            headers: { "Authorization": "Token " + PAPERLESS_TOKEN }
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (notesData) {
+              var notes = Array.isArray(notesData) ? notesData : (notesData.results || []);
+              var origId = null;
+              var origTitle = null;
+              for (var i = 0; i < notes.length; i++) {
+                var noteMatch = notes[i].note.match(/Duplicate of document #(\d+): (.+)/);
+                if (noteMatch) {
+                  origId = noteMatch[1];
+                  origTitle = noteMatch[2].split("\n")[0];
+                  break;
+                }
+              }
+              showDupeBanner(docId, origId, origTitle);
+            });
+        });
+      })
+      .catch(function () { /* ignore */ });
+  }
+
+  var dupeTagIdCache = null;
+  function getDupeTagId() {
+    if (dupeTagIdCache) return Promise.resolve(dupeTagIdCache);
+    return fetch("/api/tags/?name__iexact=possible-duplicate", {
+      headers: { "Authorization": "Token " + PAPERLESS_TOKEN }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var results = data.results || [];
+        if (results.length > 0) dupeTagIdCache = results[0].id;
+        return dupeTagIdCache;
+      })
+      .catch(function () { return null; });
+  }
+
+  function showDupeBanner(docId, origId, origTitle) {
+    removeDupeBanner();
+    var banner = document.createElement("div");
+    banner.id = "ai-dupe-banner";
+    // Warning triangle icon
+    banner.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    var text = document.createElement("span");
+    if (origId && origTitle) {
+      text.innerHTML = 'Possible duplicate of <a href="/documents/' + origId + '/details">' + origTitle + '</a>';
+    } else {
+      text.textContent = "This document may be a duplicate";
+    }
+    banner.appendChild(text);
+
+    // Insert into the document detail view
+    insertBanner(banner);
+  }
+
+  function insertBanner(banner) {
+    var attempts = 0;
+    function tryInsert() {
+      var titleBar = document.querySelector("pngx-document-detail .col");
+      if (!titleBar) titleBar = document.querySelector("pngx-document-detail h1, pngx-document-detail .page-header");
+      if (!titleBar) titleBar = document.querySelector("[class*='document-detail'] .col, app-document-detail .col");
+      if (!titleBar) titleBar = document.querySelector("pngx-document-detail");
+      if (titleBar) {
+        var parent = titleBar.closest("pngx-document-detail") || titleBar.parentNode;
+        if (parent) {
+          parent.insertBefore(banner, parent.firstChild);
+          return;
+        }
+      }
+      if (attempts++ < 10) setTimeout(tryInsert, 300);
+    }
+    tryInsert();
+  }
+
+  function removeDupeBanner() {
+    var el = document.getElementById("ai-dupe-banner");
+    if (el) el.remove();
+  }
+
+  // Poll for route changes (Angular SPA doesn't fire popstate reliably)
+  var lastUrl = window.location.href;
+  setInterval(function () {
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+      checkForDuplicate();
+    }
+  }, 500);
+
+  // Initial check
+  checkForDuplicate();
+})();

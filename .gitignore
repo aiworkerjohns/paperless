@@ -1,0 +1,21 @@
+# Generated config (contains secrets)
+.install-config
+.install-state
+
+# Rendered files (generated from templates) — root level only
+/docker-compose.yml
+/paperless.env
+/postgres.env
+/paperless-ai.env
+/paperless-gpt.env
+/overrides.js
+/inject-overrides.sh
+/patch-paperless-ai.sh
+/duplicate-sweep.py
+
+# Runtime directories
+consume/
+export/
+
+# macOS
+.DS_Store
