@@ -1,5 +1,5 @@
 #!/bin/bash
-# get-token.sh — Get or create the Paperless API token
+# get-token.sh — Get or create the Paperless API token (clean output)
 #
 # Usage: ./get-token.sh
 
@@ -9,20 +9,23 @@ source "$(dirname "$0")/lib/common.sh"
 
 ui_header "Paperless API Token"
 
-token=$(docker exec paperless python3 manage.py shell -c "
+# Extract only the 40-char hex token from shell output
+raw=$(docker exec paperless python3 manage.py shell -c "
 from rest_framework.authtoken.models import Token
 from django.contrib.auth.models import User
 u = User.objects.filter(is_superuser=True).first()
 t, _ = Token.objects.get_or_create(user=u)
-print(t.key)
-" 2>/dev/null | tr -d '[:space:]')
+print('TOKEN:' + t.key)
+" 2>/dev/null)
 
-if [ -z "$token" ]; then
+token=$(echo "$raw" | grep '^TOKEN:' | sed 's/^TOKEN://' | tr -d '[:space:]')
+
+if [ -z "$token" ] || [ ${#token} -ne 40 ]; then
   ui_fail "Could not get token — is Paperless running?"
+  ui_info "Raw output: $raw"
   exit 1
 fi
 
 echo ""
 ui_pass "API Token: $token"
 echo ""
-ui_info "Use this token in paperless-ai and paperless-gpt settings"
