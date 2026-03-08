@@ -208,11 +208,14 @@ render_all_templates() {
 save_config() {
   local key="$1"
   local value="$2"
-  if grep -q "^${key}=" "$CONFIG_FILE" 2>/dev/null; then
-    sed -i '' "s|^${key}=.*|${key}=${value}|" "$CONFIG_FILE"
-  else
-    echo "${key}=${value}" >> "$CONFIG_FILE"
+  # Remove existing entry if present
+  if [ -f "$CONFIG_FILE" ] && grep -q "^${key}=" "$CONFIG_FILE" 2>/dev/null; then
+    grep -v "^${key}=" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp"
+    mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
   fi
+  # Escape single quotes in value, then write single-quoted to prevent bash interpretation
+  local escaped_value="${value//\'/\'\\\'\'}"
+  printf "%s='%s'\n" "$key" "$escaped_value" >> "$CONFIG_FILE"
 }
 
 load_config() {
