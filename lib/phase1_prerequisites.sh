@@ -128,6 +128,15 @@ else:
   fi
   ui_pass "Ollama service running"
 
+  # ── Enable Ollama auto-start on login ──
+  if osascript -e 'tell application "System Events" to get the name of every login item' 2>/dev/null | grep -qi ollama; then
+    ui_pass "Ollama auto-start enabled"
+  else
+    ui_info "Enabling Ollama auto-start on login..."
+    osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Ollama.app", hidden:true}' 2>/dev/null || true
+    ui_pass "Ollama auto-start enabled"
+  fi
+
   # ── Tests ──
   echo ""
   ui_info "Verifying prerequisites..."
