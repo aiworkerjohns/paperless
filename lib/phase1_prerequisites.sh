@@ -90,6 +90,15 @@ phase1_prerequisites() {
     ui_pass "Colima started"
   fi
 
+  # ── Enable Colima auto-start on login ──
+  if brew services list 2>/dev/null | grep -q "colima.*started"; then
+    ui_pass "Colima auto-start enabled"
+  else
+    ui_info "Enabling Colima auto-start on login..."
+    brew services start colima 2>/dev/null || true
+    ui_pass "Colima auto-start enabled"
+  fi
+
   # ── Fix Docker credential store issue ──
   local docker_config="$HOME/.docker/config.json"
   if [ -f "$docker_config" ]; then
