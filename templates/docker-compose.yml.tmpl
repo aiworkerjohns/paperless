@@ -23,6 +23,7 @@ services:
       - paperless_media:/usr/src/paperless/media
       - ./overrides.js:/custom-init/overrides.js:ro
       - ./inject-overrides.sh:/custom-init/inject-overrides.sh:ro
+      - ./reset-ai-metadata.py:/custom-init/reset-ai-metadata.py:ro
       - ./export:/usr/src/paperless/export
       - ./consume:/usr/src/paperless/consume
     env_file: paperless.env
