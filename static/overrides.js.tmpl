@@ -556,28 +556,26 @@
 
   // --- Reprocess all documents ---
   document.getElementById("ai-chat-reprocess").addEventListener("click", function () {
-    if (!confirm("Reprocess all documents with AI?\n\nThis resets the processing history so all documents get re-analysed on the next scan cycle.")) return;
+    if (!confirm("Reprocess all documents with AI?\n\nThis will reset processing history, immediately re-scan all documents, and rebuild the RAG index.")) return;
     var btn = this;
     btn.style.opacity = "0.3";
     btn.disabled = true;
-    Promise.all([
-      fetch(AI_BASE + "/api/reset-all-documents", {
-        method: "POST",
-        headers: { "x-api-key": API_KEY },
-      }).then(function (r) { return r.json(); }),
-      fetch(AI_BASE + "/api/rag/index?force=true", {
-        method: "POST",
-        headers: { "x-api-key": API_KEY },
-      }).then(function (r) { return r.json(); }).catch(function () { return {}; })
-    ])
-      .then(function (results) {
-        if (results[0].success) {
-          addAndSave("Reprocessing queued — all documents will be re-analysed on the next scan cycle (within 30 min). RAG index is also rebuilding.", "assistant");
-          // Update status bar after reindex completes
-          setTimeout(checkIndexStatus, 15000);
-        } else {
-          addAndSave("Failed to reset processing history.", "error");
-        }
+    addAndSave("Resetting processing history...", "assistant");
+    fetch(AI_BASE + "/api/reset-all-documents", {
+      method: "POST",
+      headers: { "x-api-key": API_KEY },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (resetResult) {
+        if (!resetResult.success) throw new Error("Failed to reset processing history");
+        // Fire scan (don't await — it blocks until all docs processed)
+        // RAG reindex is triggered automatically after scan completes (via patch-paperless-ai.sh)
+        fetch(AI_BASE + "/api/scan/now", {
+          method: "POST",
+          headers: { "x-api-key": API_KEY },
+        }).catch(function () {});
+        addAndSave("Scan triggered. All documents are being reprocessed — RAG index will rebuild automatically when done.", "assistant");
+        setTimeout(checkIndexStatus, 60000);
       })
       .catch(function (err) {
         addAndSave("Error: " + err.message, "error");
@@ -612,25 +610,19 @@
       });
   }
 
-  // --- Filter sources: only relevant, deduplicated ---
+  // --- Filter sources: deduplicate and format ---
   function filterSources(sources, answer) {
     if (!sources || sources.length === 0) return [];
     var seen = {};
     var filtered = [];
-    var answerLower = (answer || "").toLowerCase();
     for (var i = 0; i < sources.length; i++) {
       var s = sources[i];
       var id = s.doc_id || s.id || s.document_id;
       if (!id || seen[id]) continue;
       var title = s.title || ("Document #" + id);
-      var score = s.score || s.cross_score || 0;
-      var titleWords = title.toLowerCase().split(/\s+/).filter(function(w) { return w.length > 3; });
-      var mentioned = titleWords.some(function(w) { return answerLower.indexOf(w) !== -1; });
-      if (score > 0.03 || mentioned) {
-        seen[id] = true;
-        filtered.push({ id: id, title: title });
-      }
-      if (filtered.length >= 3) break;
+      seen[id] = true;
+      filtered.push({ id: id, title: title });
+      if (filtered.length >= 5) break;
     }
     return filtered;
   }

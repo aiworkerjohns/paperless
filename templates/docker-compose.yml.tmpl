@@ -99,6 +99,7 @@ services:
     volumes:
       - paperless_ai_data:/app/data
       - ./patch-paperless-ai.sh:/custom-init/patch-paperless-ai.sh:ro
+      - ./rag-patch.py:/custom-init/rag-patch.py:ro
     command: /custom-init/patch-paperless-ai.sh
     env_file: paperless-ai.env
 

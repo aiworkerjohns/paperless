@@ -1,17 +1,32 @@
 #!/bin/bash
 # Patches applied at container startup for paperless-ai
 
-# 1. Limit RAG context to top 2 sources (prevents irrelevant docs confusing the LLM)
-sed -i 's/max_sources: 5/max_sources: 2/' /app/services/ragService.js 2>/dev/null
+# 1. No longer limiting RAG sources — default 5 is needed for aggregate queries
 
 # 2. Auto-reindex RAG after each document scan cycle
-# Injects a RAG reindex call at the end of scanDocuments() in server.js
+# Injects a RAG reindex call after runningTask = false in both scan code paths:
+#   - server.js (cron-based scheduled scan)
+#   - routes/setup.js (manual "Scan Now" / API scan/now)
 if ! grep -q 'RAG_REINDEX_PATCH' /app/server.js; then
-  sed -i 's/runningTask = false;/runningTask = false;\n    \/\/ RAG_REINDEX_PATCH: trigger RAG reindex after scan\n    try { const axios = require("axios"); axios.post("http:\/\/localhost:8000\/indexing\/start", { force: true, background: true }).then(() => console.log("[INFO] RAG reindex triggered after scan")).catch(() => {}); } catch(e) {}/' /app/server.js
+  sed -i '/runningTask = false;/a\
+    // RAG_REINDEX_PATCH: trigger RAG reindex after scan\
+    try { const axios = require("axios"); axios.post("http://localhost:8000/indexing/start", { force: true, background: true }).then(() => console.log("[INFO] RAG reindex triggered after scan")).catch(() => {}); } catch(e) {}' /app/server.js
   echo "Patched server.js: RAG auto-reindex after scan"
 fi
+if ! grep -q 'RAG_REINDEX_PATCH' /app/routes/setup.js; then
+  sed -i '/runningTask = false;/a\
+    // RAG_REINDEX_PATCH: trigger RAG reindex after scan\
+    try { const axios = require("axios"); axios.post("http://localhost:8000/indexing/start", { force: true, background: true }).then(() => console.log("[INFO] RAG reindex triggered after scan")).catch(() => {}); } catch(e) {}' /app/routes/setup.js
+  echo "Patched setup.js: RAG auto-reindex after manual scan"
+fi
 
-# 2. Seed data/.env if empty or missing (first-run only)
+# 3. Replace RAG askQuestion method with improved version
+if ! grep -q 'RAG_PROMPT_PATCH' /app/services/ragService.js; then
+  python3 /custom-init/rag-patch.py
+  echo "Patched ragService.js: improved RAG chat"
+fi
+
+# 4. Seed data/.env if empty or missing (first-run only)
 #    Once seeded, the user manages settings via the paperless-ai web UI (port 3000).
 #    This script will NOT overwrite an existing config.
 if [ ! -s /app/data/.env ] || ! grep -q 'PAPERLESS_AI_INITIAL_SETUP' /app/data/.env; then
@@ -31,8 +46,8 @@ RULES:
 - Pick the single most specific document type.
 - Keep titles short and descriptive with key identifiers (invoice numbers, dates, names).\`
 PROCESS_PREDEFINED_DOCUMENTS=${PROCESS_PREDEFINED_DOCUMENTS:-no}
-TOKEN_LIMIT=${OLLAMA_TOKEN_LIMIT:-128000}
-RESPONSE_TOKENS=${OLLAMA_TOKEN_RESPONSE:-1000}
+TOKEN_LIMIT=${OLLAMA_TOKEN_LIMIT:-32000}
+RESPONSE_TOKENS=${OLLAMA_TOKEN_RESPONSE:-2048}
 TAGS=
 ADD_AI_PROCESSED_TAG=${ADD_AI_TAG:-yes}
 AI_PROCESSED_TAG_NAME=${AI_TAG_NAME:-ai-processed}
@@ -57,7 +72,8 @@ AZURE_API_KEY=
 AZURE_DEPLOYMENT_NAME=
 AZURE_API_VERSION=
 OLLAMA_API_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
-OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:8b}
+OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+RAG_PROMPT=You are a document assistant. Answer based on the documents provided. Be concise. If listing documents, show title and key details. If the documents are not relevant to the question, say so.
 ENVEOF
   echo "Seeded /app/data/.env — edit via paperless-ai settings UI going forward"
 fi
