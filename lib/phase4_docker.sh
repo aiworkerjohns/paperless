@@ -5,6 +5,12 @@ phase4_docker() {
   ui_phase 4 "Docker Stack"
   load_config
 
+  if [ -z "$DC" ]; then
+    ui_fail "No docker compose found — install docker-compose or Docker Compose plugin"
+    return 1
+  fi
+  ui_info "Using compose command: $DC"
+
   # ── Render templates ──
   ui_info "Rendering configuration templates..."
   render_all_templates
@@ -29,15 +35,15 @@ phase4_docker() {
   mkdir -p "$INSTALL_DIR/consume" "$INSTALL_DIR/export"
   ui_pass "consume/ and export/ directories created"
 
-  # ── Docker compose (use COMPOSE_FILE env var for portability) ──
+  # ── Docker compose ──
   export COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
 
   ui_info "Pulling Docker images (this may take a while)..."
-  ui_spin "Pulling Docker images" docker compose pull
+  ui_spin "Pulling Docker images" $DC pull
   ui_pass "Docker images pulled"
 
   ui_info "Starting containers..."
-  docker compose up --detach
+  $DC up -d
   ui_pass "Containers started"
 
   # ── Health checks ──

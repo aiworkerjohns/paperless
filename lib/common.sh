@@ -17,6 +17,16 @@ if command -v gum &>/dev/null; then
   HAS_GUM=true
 fi
 
+# ── Detect docker compose command ──
+# Sets DC as the compose command array to use everywhere
+if docker compose version &>/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  DC="docker-compose"
+else
+  DC=""
+fi
+
 # ── Colors (fallback when no gum) ──
 RED='\033[0;31m'
 GREEN='\033[0;32m'
