@@ -31,12 +31,12 @@ phase4_docker() {
 
   # ── Docker compose pull ──
   ui_info "Pulling Docker images (this may take a while)..."
-  ui_spin "Pulling Docker images" (cd "$INSTALL_DIR" && docker compose pull)
+  ui_spin "Pulling Docker images" docker compose --project-directory "$INSTALL_DIR" pull
   ui_pass "Docker images pulled"
 
   # ── Docker compose up ──
   ui_info "Starting containers..."
-  (cd "$INSTALL_DIR" && docker compose up -d)
+  docker compose --project-directory "$INSTALL_DIR" up -d
   ui_pass "Containers started"
 
   # ── Health checks ──
