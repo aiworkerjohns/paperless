@@ -6,8 +6,10 @@ set -euo pipefail
 # ── Directories ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
-CONFIG_FILE="$INSTALL_DIR/.install-config"
-STATE_FILE="$INSTALL_DIR/.install-state"
+PAPERLESS_STATE_DIR="$HOME/.paperless-install"
+mkdir -p "$PAPERLESS_STATE_DIR"
+CONFIG_FILE="$PAPERLESS_STATE_DIR/.install-config"
+STATE_FILE="$PAPERLESS_STATE_DIR/.install-state"
 
 # ── Detect gum ──
 HAS_GUM=false
