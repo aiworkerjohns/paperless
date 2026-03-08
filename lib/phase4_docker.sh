@@ -29,14 +29,15 @@ phase4_docker() {
   mkdir -p "$INSTALL_DIR/consume" "$INSTALL_DIR/export"
   ui_pass "consume/ and export/ directories created"
 
-  # ── Docker compose pull ──
+  # ── Docker compose (use COMPOSE_FILE env var for portability) ──
+  export COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+
   ui_info "Pulling Docker images (this may take a while)..."
-  (cd "$INSTALL_DIR" && ui_spin "Pulling Docker images" docker compose pull)
+  ui_spin "Pulling Docker images" docker compose pull
   ui_pass "Docker images pulled"
 
-  # ── Docker compose up ──
   ui_info "Starting containers..."
-  (cd "$INSTALL_DIR" && docker compose up -d)
+  docker compose up --detach
   ui_pass "Containers started"
 
   # ── Health checks ──
