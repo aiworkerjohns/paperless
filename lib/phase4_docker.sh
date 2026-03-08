@@ -15,6 +15,8 @@ phase4_docker() {
   cp "$INSTALL_DIR/static/inject-overrides.sh" "$INSTALL_DIR/inject-overrides.sh"
   cp "$INSTALL_DIR/static/patch-paperless-ai.sh" "$INSTALL_DIR/patch-paperless-ai.sh"
   cp "$INSTALL_DIR/static/duplicate-sweep.py" "$INSTALL_DIR/duplicate-sweep.py"
+  cp "$INSTALL_DIR/static/rag-patch.py" "$INSTALL_DIR/rag-patch.py"
+  cp "$INSTALL_DIR/static/reset-ai-metadata.py" "$INSTALL_DIR/reset-ai-metadata.py"
   chmod +x "$INSTALL_DIR/inject-overrides.sh" "$INSTALL_DIR/patch-paperless-ai.sh"
   ui_pass "Static files copied"
 
