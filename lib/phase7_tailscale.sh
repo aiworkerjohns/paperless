@@ -44,16 +44,30 @@ else:
   ui_info "Setting up Tailscale Serve..."
 
   # Port 443 → Paperless (8000)
-  tailscale serve --bg --https=443 http://localhost:8000 2>/dev/null || \
-    tailscale serve https+insecure://localhost:8000 2>/dev/null || \
-    ui_warn "Could not set up Tailscale Serve for port 443"
+  if ! tailscale serve --bg --https=443 http://localhost:8000 2>/dev/null; then
+    if ! tailscale serve --https=443 http://localhost:8000 2>/dev/null; then
+      if ! tailscale serve 443 http://localhost:8000 2>/dev/null; then
+        ui_warn "Could not set up Tailscale Serve for port 443"
+        ui_info "Try manually: tailscale serve --https=443 http://localhost:8000"
+      fi
+    fi
+  fi
 
   # Port 8443 → paperless-ai (3000)
-  tailscale serve --bg --https=8443 http://localhost:3000 2>/dev/null || \
-    tailscale serve --https=8443 http://localhost:3000 2>/dev/null || \
-    ui_warn "Could not set up Tailscale Serve for port 8443"
+  if ! tailscale serve --bg --https=8443 http://localhost:3000 2>/dev/null; then
+    if ! tailscale serve --https=8443 http://localhost:3000 2>/dev/null; then
+      if ! tailscale serve 8443 http://localhost:3000 2>/dev/null; then
+        ui_warn "Could not set up Tailscale Serve for port 8443"
+      fi
+    fi
+  fi
 
-  ui_pass "Tailscale Serve configured (443→8000, 8443→3000)"
+  # Verify
+  if tailscale serve status 2>/dev/null | grep -q "443"; then
+    ui_pass "Tailscale Serve configured"
+  else
+    ui_warn "Tailscale Serve may not be configured — check: tailscale serve status"
+  fi
 
   # ── Update Paperless URL ──
   local paperless_url="https://${ts_hostname}"
@@ -72,7 +86,8 @@ else:
 
   # ── Restart Paperless to pick up URL change ──
   ui_info "Restarting Paperless..."
-  docker compose -f "$INSTALL_DIR/docker-compose.yml" restart paperless
+  export COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+  $DC restart paperless
   sleep 5
 
   # ── Test ──
