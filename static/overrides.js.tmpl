@@ -323,6 +323,9 @@
     '    <h3>Ask AI</h3>',
     '  </div>',
     '  <div id="ai-chat-header-actions">',
+    '    <button id="ai-chat-reset" title="Reset all AI metadata and reprocess">',
+    '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
+    '    </button>',
     '    <button id="ai-chat-reprocess" title="Reprocess all documents">',
     '      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
     '    </button>',
@@ -553,6 +556,93 @@
   });
   document.getElementById("ai-convo-back").addEventListener("click", closeConvoList);
   document.getElementById("ai-convo-new-btn").addEventListener("click", newConversation);
+
+  // --- Reset all AI metadata and reprocess ---
+  document.getElementById("ai-chat-reset").addEventListener("click", function () {
+    if (!confirm("RESET ALL AI DATA?\n\nThis will:\n- Clear all correspondents, document types, and AI tags\n- Reset titles to original filenames\n- Delete all correspondents\n- Trigger a full AI rescan\n\nDocuments and OCR content are preserved.")) return;
+    var btn = this;
+    btn.style.opacity = "0.3";
+    btn.disabled = true;
+    addAndSave("Resetting all AI metadata...", "assistant");
+
+    var KEEP_TAGS = ["inbox", "paperless-gpt-ocr-complete", "paperless-gpt-ocr-auto", "paperless-gpt-auto", "paperless-gpt-manual"];
+    var STANDARD_DOC_TYPES = ["Invoice", "Receipt", "Statement", "Contract", "Insurance", "Letter", "Report", "Certificate", "Identity", "Tax Return", "Payslip", "Manual", "Quote", "Purchase Order", "Expense Report", "Form"];
+    var apiHeaders = { "Authorization": "Token " + PAPERLESS_TOKEN, "Content-Type": "application/json" };
+
+    // Step 1: Get all document IDs and all tags
+    Promise.all([
+      fetch("/api/documents/?page_size=1000&fields=id", { headers: apiHeaders }).then(function(r) { return r.json(); }),
+      fetch("/api/tags/?page_size=100", { headers: apiHeaders }).then(function(r) { return r.json(); })
+    ])
+    .then(function(results) {
+      var docIds = (results[0].results || []).map(function(d) { return d.id; });
+      var allTags = results[1].results || [];
+      var removeTags = allTags.filter(function(t) { return KEEP_TAGS.indexOf(t.name) === -1; }).map(function(t) { return t.id; });
+
+      if (docIds.length === 0) throw new Error("No documents found");
+      addAndSave("Clearing metadata on " + docIds.length + " documents...", "assistant");
+
+      // Step 2: Bulk edit — clear correspondent, doc type, remove AI tags
+      return Promise.all([
+        fetch("/api/documents/bulk_edit/", {
+          method: "POST", headers: apiHeaders,
+          body: JSON.stringify({ documents: docIds, method: "set_correspondent", parameters: { correspondent: null } })
+        }),
+        fetch("/api/documents/bulk_edit/", {
+          method: "POST", headers: apiHeaders,
+          body: JSON.stringify({ documents: docIds, method: "set_document_type", parameters: { document_type: null } })
+        }),
+        removeTags.length > 0 ? fetch("/api/documents/bulk_edit/", {
+          method: "POST", headers: apiHeaders,
+          body: JSON.stringify({ documents: docIds, method: "remove_tags", parameters: { tags: removeTags } })
+        }) : Promise.resolve()
+      ]);
+    })
+    .then(function() {
+      // Step 3: Delete all correspondents
+      return fetch("/api/correspondents/?page_size=1000", { headers: apiHeaders })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var deletes = (data.results || []).map(function(c) {
+            return fetch("/api/correspondents/" + c.id + "/", { method: "DELETE", headers: apiHeaders });
+          });
+          return Promise.all(deletes);
+        });
+    })
+    .then(function() {
+      // Step 4: Delete non-standard document types
+      return fetch("/api/document_types/?page_size=100", { headers: apiHeaders })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var deletes = (data.results || []).filter(function(dt) {
+            return STANDARD_DOC_TYPES.indexOf(dt.name) === -1;
+          }).map(function(dt) {
+            return fetch("/api/document_types/" + dt.id + "/", { method: "DELETE", headers: apiHeaders });
+          });
+          return Promise.all(deletes);
+        });
+    })
+    .then(function() {
+      // Step 5: Reset paperless-ai and trigger rescan
+      return fetch(AI_BASE + "/api/reset-all-documents", {
+        method: "POST", headers: { "x-api-key": API_KEY }
+      });
+    })
+    .then(function() {
+      fetch(AI_BASE + "/api/scan/now", {
+        method: "POST", headers: { "x-api-key": API_KEY }
+      }).catch(function() {});
+      addAndSave("Reset complete. All documents are being reprocessed with fresh AI classification.", "assistant");
+      setTimeout(checkIndexStatus, 60000);
+    })
+    .catch(function(err) {
+      addAndSave("Error during reset: " + err.message, "error");
+    })
+    .finally(function() {
+      btn.style.opacity = "";
+      btn.disabled = false;
+    });
+  });
 
   // --- Reprocess all documents ---
   document.getElementById("ai-chat-reprocess").addEventListener("click", function () {
@@ -869,17 +959,23 @@
     banner.appendChild(text);
 
     // Insert into the document detail view
+    // Try to find the detail content area — Paperless uses pngx-document-detail component
     insertBanner(banner);
   }
 
   function insertBanner(banner) {
+    // Strategy: find the document detail header/title area and insert after it
+    // The detail page has a <div class="row"> or similar after the title bar
     var attempts = 0;
     function tryInsert() {
+      // Look for the document detail component's content
       var titleBar = document.querySelector("pngx-document-detail .col");
       if (!titleBar) titleBar = document.querySelector("pngx-document-detail h1, pngx-document-detail .page-header");
       if (!titleBar) titleBar = document.querySelector("[class*='document-detail'] .col, app-document-detail .col");
+      // Fallback: insert at top of main content area
       if (!titleBar) titleBar = document.querySelector("pngx-document-detail");
       if (titleBar) {
+        // Insert before the first child of the detail component, or after the title
         var parent = titleBar.closest("pngx-document-detail") || titleBar.parentNode;
         if (parent) {
           parent.insertBefore(banner, parent.firstChild);
